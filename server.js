@@ -1,6 +1,4 @@
-// 1. Impor semua library yang kita butuhkan
 
-// Panggil 'dotenv' paling atas agar semua file lain bisa membaca .env
 require('dotenv').config(); 
 
 const express = require('express');
@@ -50,26 +48,51 @@ app.get('/api/profile', authMiddleware, async (req, res) => {
 app.put('/api/profile', authMiddleware, async (req, res) => {
   try {
     const uid = req.user.uid;
-    const { name, username, gender, profileImageUrI1 } = req.body; 
-
+    const body = req.body; // Ambil seluruh body
     const userRef = db.collection('users').doc(uid);
+
+    // 1. Buat objek kosong untuk data yang akan di-update
+    const updateData = {};
+
+    // 2. Cek setiap field satu per satu. 
+    //    Hanya tambahkan ke 'updateData' jika nilainya ada di body.
+    if (body.name !== undefined) {
+      updateData.name = body.name;
+    }
+    if (body.username !== undefined) {
+      updateData.username = body.username;
+    }
+    if (body.gender !== undefined) {
+      updateData.gender = body.gender;
+    }
+    if (body.profileImageUrl !== undefined) {
+      // Ini aman. Jika client mengirim 'null', nilainya akan 'null'.
+      // Jika client tidak mengirim field ini, 'undefined' akan terdeteksi
+      // dan field ini akan diabaikan (tidak akan di-update).
+      updateData.profileImageUrl = body.profileImageUrl;
+    }
     
-    await userRef.set({
-      name: name,
-      username: username,
-      gender: gender,
-      profileImageUrI1: profileImageUrI1, // Pastikan nama field sama persis
-      updatedAt: admin.firestore.FieldValue.serverTimestamp() // Praktik terbaik
-    }, { merge: true });
+    // Periksa apakah ada data untuk di-update
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).send({ message: 'Tidak ada data untuk diperbarui' });
+    }
+
+    // 3. Selalu perbarui 'updatedAt'
+    updateData.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+    // 4. Gunakan 'update()'
+    //    Ini hanya akan memperbarui field yang ada di 'updateData'
+    await userRef.update(updateData);
 
     res.status(200).send({ message: 'Profil berhasil diperbarui' });
   } catch (error) {
+    console.error('Error memperbarui profil:', error);
     res.status(500).send({ message: 'Server Error', error: error.message });
   }
 });
 
 
-// --- Rute 'Tasks' (CRUD LENGKAP - Versi Revisi) ---
+
 
 /**
  * [POST] /api/tasks
@@ -222,6 +245,180 @@ app.delete('/api/tasks/:taskId', authMiddleware, async (req, res) => {
     res.status(200).send({ message: 'Tugas berhasil dihapus (soft delete)' });
   } catch (error) {
     console.error('Error menghapus task:', error);
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
+});
+
+
+/**
+ * Mendapatkan tanggal hari ini dalam format YYYY-MM-DD.
+ * @param {Date} date Objek tanggal
+ * @returns {string} String format "YYYY-MM-DD"
+ */
+const getTodayStr = (date) => {
+  // .toISOString() menghasilkan format "2025-11-10T17:00:00.000Z"
+  // Kita hanya ambil bagian tanggalnya.
+  return date.toISOString().split('T')[0];
+};
+
+/**
+ * Mengecek apakah 'lastDateStr' adalah hari kemarin.
+ * @param {string} lastDateStr String "YYYY-MM-DD" dari database
+ * @param {string} todayStr String "YYYY-MM-DD" hari ini
+ * @returns {boolean}
+ */
+const isYesterday = (lastDateStr, todayStr) => {
+  try {
+    // Set jam 12 siang UTC untuk menghindari masalah zona waktu
+    const today = new Date(todayStr + "T12:00:00Z"); 
+    // Mundur 1 hari
+    const yesterday = new Date(today.setDate(today.getDate() - 1));
+    const yesterdayStr = getTodayStr(yesterday);
+    return lastDateStr === yesterdayStr;
+  } catch (e) {
+    console.error("Error di isYesterday:", e);
+    return false;
+  }
+};
+
+/**
+ * Mendapatkan hari dalam seminggu sesuai standar Kotlin Anda.
+ * (Senin=0, Selasa=1, ..., Minggu=6)
+ * @param {Date} date Objek tanggal
+ * @returns {number}
+ */
+const getDayOfWeekAsNumber = (date) => {
+  const jsDay = date.getDay(); // Standar JS: Minggu=0, Senin=1, ..., Sabtu=6
+  // Konversi ke standar Anda (Senin=0, ..., Minggu=6)
+  if (jsDay === 0) { // Jika JS hari Minggu (0)
+    return 6; // Standar Anda adalah 6
+  } else {
+    return jsDay - 1; // Senin (1) jadi 0, Selasa (2) jadi 1, dst.
+  }
+};
+
+// --- ENDPOINT ---
+
+/**
+ * [GET] /api/stats/streak
+ * Mengambil data streak (rentetan) pengguna.
+ * Path: users/{uid}/stats/streak
+ */
+app.get('/api/stats/streak', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const streakRef = db.collection('users').doc(uid).collection('stats').doc('streak');
+    const doc = await streakRef.get();
+
+    if (!doc.exists) {
+      // Kirim data default sesuai format Kotlin Anda ("" bukan null)
+      return res.status(200).send({
+        currentStreak: 0,
+        lastCompletionDate: null, // null saat awal
+        streakDays: "" // String kosong
+      });
+    }
+
+    res.status(200).send(doc.data());
+  } catch (error) {
+    console.error('Error mengambil streak:', error);
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
+});
+
+
+/**
+ * [POST] /api/stats/streak/complete
+ * Merekam penyelesaian tugas HARI INI dan memperbarui streak.
+ * Endpoint ini meniru logika 'checkAndUpdateStreak' dari Kotlin.
+ */
+app.post('/api/stats/streak/complete', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const streakRef = db.collection('users').doc(uid).collection('stats').doc('streak');
+
+    const finalData = await db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(streakRef);
+
+      // 1. Tentukan tanggal hari ini (waktu server)
+      // Izinkan 'simulatedDate' dari body HANYA UNTUK TESTING
+      const { simulatedDate } = req.body;
+      const now = simulatedDate ? new Date(simulatedDate) : new Date();
+      
+      const todayStr = getTodayStr(now); // "YYYY-MM-DD"
+
+      // 2. Ambil data saat ini, atau siapkan data default jika tidak ada
+      const currentState = doc.exists ? doc.data() : {
+        currentStreak: 0,
+        lastCompletionDate: null,
+        streakDays: ""
+      };
+
+      const { currentStreak, lastCompletionDate, streakDays } = currentState;
+
+      // 3. Logika Inti Streak (Meniru 'when' di Kotlin)
+
+      // Kasus 2: Sudah di-update hari ini
+      if (lastCompletionDate === todayStr) {
+        return currentState; // Tidak ada perubahan, langsung kembalikan data
+      }
+
+      let newStreak = currentStreak;
+      // Variabel 'hasCompletedToday' selalu 'true' di endpoint ini,
+      
+      if (lastCompletionDate === null) {
+        // Kasus 1: Belum ada streak sama sekali
+        newStreak = 0;
+      } else if (isYesterday(lastCompletionDate, todayStr)) {
+        // Kasus 3: Hari ini adalah hari setelah lastDateStr (Beruntun)
+        newStreak = currentStreak + 1;
+      } else {
+        // Kasus 4: Jeda lebih dari satu hari (Streak putus)
+        newStreak = 0;
+      }
+
+      // 4. Logika 'streakDays' (Meniru kode Kotlin)
+      const currentDay = getDayOfWeekAsNumber(now); // 0-6
+      
+      // Ubah string "1,2,5" menjadi Set [1, 2, 5]
+      const existingDays = streakDays.split(',')
+                                    .map(s => s.trim()) // Hapus spasi
+                                    .filter(s => s.length > 0) // Hapus string kosong
+                                    .map(Number); // Ubah jadi angka
+      const daySet = new Set(existingDays);
+
+      let newStreakDays;
+      if (newStreak > currentStreak) {
+        // Lanjutkan streak, tambahkan hari ini jika belum ada
+        if (!daySet.has(currentDay)) {
+          daySet.add(currentDay);
+        }
+        newStreakDays = Array.from(daySet).sort((a, b) => a - b).join(',');
+      } else if (newStreak === 1) {
+        // Streak baru (baik dari 0 atau dari reset)
+        // Mulai ulang 'streakDays' hanya dengan hari ini
+        newStreakDays = String(currentDay);
+      } else {
+        // Kasus yang seharusnya tidak terjadi di sini (streak == 0)
+        // Tapi untuk jaga-jaga, kita pertahankan data lama
+        newStreakDays = streakDays;
+      }
+
+      // 5. Siapkan data baru untuk disimpan
+      const newState = {
+        currentStreak: newStreak,
+        lastCompletionDate: todayStr, // Simpan sebagai String "YYYY-MM-DD"
+        streakDays: newStreakDays   // Simpan sebagai String "1,2,5"
+      };
+
+      transaction.set(streakRef, newState);
+      return newState;
+    });
+
+    res.status(200).send(finalData);
+
+  } catch (error) {
+    console.error('Error memperbarui streak:', error);
     res.status(500).send({ message: 'Server Error', error: error.message });
   }
 });
