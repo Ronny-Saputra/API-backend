@@ -4,6 +4,14 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
+const cloudinary = require('cloudinary').v2;
+
+// 1. Konfigurasi Cloudinary menggunakan file .env
+cloudinary.config({   
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME, 
+  api_key: process.env.CLOUDINARY_API_KEY, 
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 // 2. Inisialisasi Firebase Admin
 //    SDK secara otomatis akan mencari variabel lingkungan 
@@ -31,6 +39,74 @@ const authMiddleware = require('./authMiddleware');
 app.use(cors()); 
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
 app.use(express.json()); 
+
+app.get('/api/tasks', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    // 1. Ambil 'date' DARI req.query
+    const { search, month, date } = req.query; 
+
+    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
+    
+    // 2. Mulai kueri dasar
+    let query = tasksCollection.where('deletedAt', '==', null);
+
+    // 3. Terapkan filter TANGGAL (PRIORITAS UTAMA)
+    if (date) {
+      // 'date' diharapkan dalam format "YYYY-MM-DD"
+      // Kita perlu membuat rentang waktu dari awal hari hingga akhir hari
+      // PENTING: Gunakan zona waktu UTC agar konsisten
+      const startDate = new Date(date + 'T00:00:00.000Z');
+      const endDate = new Date(date + 'T23:59:59.999Z');
+
+      // Terapkan filter rentang pada 'dueDate'
+      query = query.where('dueDate', '>=', startDate);
+      query = query.where('dueDate', '<=', endDate);
+    
+    } else if (month) {
+      // 4. ATAU terapkan filter BULAN (jika tidak ada filter tanggal)
+      const year = 2025; // Asumsi tahun, sesuai logika frontend Anda
+      const monthIndex = parseInt(month) - 1; 
+      
+      const startDate = new Date(year, monthIndex, 1);
+      const endDate = new Date(year, monthIndex + 1, 0, 23, 59, 59);
+
+      query = query.where('dueDate', '>=', startDate);
+      query = query.where('dueDate', '<=', endDate);
+    }
+    
+    // 5. Jalankan kueri Firestore
+    //    Kita urutkan berdasarkan 'dueDate' sekarang, yang lebih masuk akal
+    //    untuk tampilan kalender/pencarian
+    const snapshot = await query.orderBy('dueDate', 'asc').get();
+
+    let tasks = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    // 6. Terapkan filter SEARCH (setelah mengambil data)
+    if (search) {
+      const lowerCaseQuery = search.toLowerCase();
+      tasks = tasks.filter(task => 
+        (task.title && task.title.toLowerCase().includes(lowerCaseQuery))
+      );
+    }
+
+    // 7. Kirim hasil
+    res.status(200).send(tasks);
+
+  } catch (error) {
+    console.error('Error mengambil tasks:', error);
+    // Jika error karena indeks, Firebase akan memberi tahu di log
+    if (error.message.includes('requires an index')) {
+        return res.status(500).send({ 
+            message: 'Server Error: Diperlukan Composite Index di Firestore. Cek log server untuk link pembuatan indeks.' 
+        });
+    }
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
+});
 
 app.get('/api/profile', authMiddleware, async (req, res) => {
   try {
@@ -91,7 +167,52 @@ app.put('/api/profile', authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * [POST] /api/profile/image
+ * Menerima string base64, upload ke Cloudinary,
+ * dan simpan URL-nya ke Firestore.
+ */
+app.post('/api/profile/image', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    // Ambil string base64 dari body JSON
+    const { image } = req.body; 
 
+    if (!image) {
+      return res.status(400).send({ message: 'Tidak ada gambar yang dikirim' });
+    }
+
+    // 1. Upload ke Cloudinary
+    // Kita taruh di folder 'profile_pics' agar rapi
+    const uploadResponse = await cloudinary.uploader.upload(image, {
+      folder: "profile_pics",
+      // Opsi untuk 'cropping' otomatis ke 1:1 (persegi)
+      crop: "fill", 
+      gravity: "face",
+      width: 300, 
+      height: 300
+    });
+
+    const imageUrl = uploadResponse.secure_url; // URL gambar yang aman (https://)
+
+    // 2. Simpan URL ke Firestore
+    const userRef = db.collection('users').doc(uid);
+    await userRef.update({
+      profileImageUrl: imageUrl, 
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // 3. Kirim URL baru kembali ke frontend
+    res.status(200).send({ 
+      message: 'Foto profil berhasil di-upload', 
+      newImageUrl: imageUrl 
+    });
+
+  } catch (error) {
+    console.error('Error upload gambar:', error);
+    res.status(500).send({ message: 'Upload gagal', error: error.message });
+  }
+});
 
 
 /**
@@ -118,6 +239,8 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
       category: category || "None",
       priority: priority || "None",
       status: "pending", // Status default saat dibuat
+      flowDurationMillis: 1800000,
+      endTimeMillis: 0,
       
       // Gunakan timestamp server untuk konsistensi
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -139,39 +262,7 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * [GET] /api/tasks
- * Mengambil SEMUA 'tasks' dari subcollection pengguna (yang tidak di-soft-delete).
- */
-app.get('/api/tasks', authMiddleware, async (req, res) => {
-  try {
-    const uid = req.user.uid;
 
-    // Tentukan path ke subcollection 'tasks'
-    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
-
-    // Kueri untuk mengambil tugas yang 'deletedAt'-nya null
-    // dan urutkan berdasarkan yang terbaru
-    const snapshot = await tasksCollection
-                             .where('deletedAt', '==', null) // Hanya ambil yang tidak di-soft-delete
-                             .orderBy('createdAt', 'desc') // Tampilkan yang terbaru dulu
-                             .get();
-
-    if (snapshot.empty) {
-      return res.status(200).send([]); // Kirim array kosong
-    }
-
-    const tasks = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-
-    res.status(200).send(tasks);
-  } catch (error) {
-    console.error('Error mengambil tasks:', error);
-    res.status(500).send({ message: 'Server Error', error: error.message });
-  }
-});
 
 /**
  * [PUT] /api/tasks/:taskId
@@ -245,6 +336,203 @@ app.delete('/api/tasks/:taskId', authMiddleware, async (req, res) => {
     res.status(200).send({ message: 'Tugas berhasil dihapus (soft delete)' });
   } catch (error) {
     console.error('Error menghapus task:', error);
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
+});
+// --- HELPER UNTUK STATISTIK PRODUKTIVITAS ---
+
+/**
+ * Mendapatkan tanggal Awal (Minggu) dan Akhir (Sabtu)
+ * dari MINGGU SAAT INI.
+ */
+function getThisWeekRange() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dayOfWeek = today.getDay(); // 0=Minggu, 1=Senin, ..., 6=Sabtu
+
+  // Mundur ke hari Minggu
+  const startDate = new Date(today.setDate(today.getDate() - dayOfWeek));
+  startDate.setHours(0, 0, 0, 0); // Set ke awal hari
+
+  // Maju ke hari Sabtu
+  const endDate = new Date(startDate);
+  endDate.setDate(startDate.getDate() + 6);
+  endDate.setHours(23, 59, 59, 999); // Set ke akhir hari
+
+  return { startDate, endDate };
+}
+
+/**
+ * Mendapatkan tanggal Awal (Tgl 1) dan Akhir (Tgl 30/31)
+ * dari BULAN SAAT INI.
+ */
+function getThisMonthRange() {
+  const now = new Date();
+  const startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+  const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59); // Trik 'hari ke-0'
+  return { startDate, endDate };
+}
+
+/**
+ * Mendapatkan tanggal Awal (1 Jan) dan Akhir (31 Des)
+ * dari TAHUN SAAT INI.
+ */
+function getThisYearRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const startDate = new Date(year, 0, 1, 0, 0, 0);
+  const endDate = new Date(year, 11, 31, 23, 59, 59);
+  return { startDate, endDate };
+}
+
+// --- ENDPOINT STATISTIK PRODUKTIVITAS BARU ---
+
+/**
+ * [GET] /api/stats/productivity
+ * Menghitung dan mengelompokkan tugas yang SELESAI
+ * berdasarkan rentang waktu (daily, weekly, monthly).
+ */
+app.get('/api/stats/productivity', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const { view } = req.query; // ?view=daily, ?view=weekly, ?view=monthly
+    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
+
+    let startDate, endDate;
+    let statsData; // Ini yang akan kita kirim
+
+    // 1. Tentukan rentang tanggal berdasarkan 'view'
+    // Kueri dasar: HANYA ambil tugas yang 'completed'
+    let query = tasksCollection
+      .where('deletedAt', '==', null)
+      .where('status', '==', 'completed');
+
+    switch (view) {
+      case 'daily': // Data untuk chart "Daily" (Minggu - Sabtu)
+        ({ startDate, endDate } = getThisWeekRange());
+        // Inisialisasi 7 hari (Minggu=0, Senin=1, ..., Sabtu=6)
+        statsData = [0, 0, 0, 0, 0, 0, 0];
+        break;
+      
+      case 'weekly': // Data untuk chart "Weekly" (Minggu 1-5 dalam sebulan)
+        ({ startDate, endDate } = getThisMonthRange());
+        // Inisialisasi 5 minggu (asumsi maks 5 minggu)
+        statsData = [0, 0, 0, 0, 0];
+        break;
+      
+      case 'monthly': // Data untuk chart "Monthly" (Jan - Des)
+        ({ startDate, endDate } = getThisYearRange());
+        // Inisialisasi 12 bulan
+        statsData = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        break;
+      
+      default:
+        return res.status(400).send({ message: 'Query "view" tidak valid' });
+    }
+    
+    // 2. Terapkan filter rentang tanggal
+    // Kita filter berdasarkan 'completedAt', KARENA kita hanya peduli KAPAN
+    // tugas itu diselesaikan, bukan 'dueDate'-nya.
+    query = query
+      .where('completedAt', '>=', startDate)
+      .where('completedAt', '<=', endDate);
+
+    // 3. Ambil data dan proses
+    const snapshot = await query.get();
+
+    snapshot.forEach(doc => {
+      const task = doc.data();
+      // 'completedAt' adalah Timestamp Firestore, ubah ke Date JS
+      const completedDate = task.completedAt.toDate();
+
+      // 4. Kelompokkan data berdasarkan 'view'
+      if (view === 'daily') {
+        const dayIndex = completedDate.getDay(); // 0=Minggu, 1=Senin, ...
+        statsData[dayIndex]++;
+      } else if (view === 'weekly') {
+        const date = completedDate.getDate(); // Tanggal (1-31)
+        const weekIndex = Math.floor((date - 1) / 7); // (Tgl 1-7 -> idx 0), (Tgl 8-14 -> idx 1)
+        statsData[weekIndex]++;
+      } else if (view === 'monthly') {
+        const monthIndex = completedDate.getMonth(); // 0=Jan, 1=Feb, ...
+        statsData[monthIndex]++;
+      }
+    });
+
+    // 5. Kirim hasilnya (array berisi angka)
+    res.status(200).send(statsData);
+
+  } catch (error) {
+    console.error(`Error mengambil statistik ${req.query.view}:`, error);
+    if (error.message.includes('requires an index')) {
+        return res.status(500).send({ 
+            message: 'Server Error: Diperlukan Composite Index di Firestore. Cek log server untuk link pembuatan indeks.' 
+        });
+    }
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
+});
+/**
+ * [GET] /api/stats/tasks
+ * Menghitung statistik (done, missed, deleted) untuk pengguna.
+ * Ini jauh lebih efisien daripada menghitung di frontend.
+ */
+app.get('/api/stats/tasks', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid;
+    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
+    const now = new Date(); // Waktu server saat ini
+
+    // 1. Kueri untuk menghitung 'Done' (Selesai)
+    // status == 'completed' DAN belum di-soft-delete
+    const doneQuery = tasksCollection
+      .where('deletedAt', '==', null)
+      .where('status', '==', 'completed')
+      .count()
+      .get();
+
+    // 2. Kueri untuk menghitung 'Deleted' (Dihapus)
+    // Cukup cek 'deletedAt' tidak null
+    const deletedQuery = tasksCollection
+      .where('deletedAt', '!=', null)
+      .count()
+      .get();
+
+    // 3. Kueri untuk menghitung 'Missed' (Terlewat)
+    // status == 'pending' DAN dueDate < HARI INI
+    const missedQuery = tasksCollection
+      .where('deletedAt', '==', null)
+      .where('status', '==', 'pending')
+      .where('dueDate', '<', now) // dueDate sudah lewat
+      .count()
+      .get();
+
+    // 4. Jalankan semua 3 kueri secara paralel
+    const [doneResult, deletedResult, missedResult] = await Promise.all([
+      doneQuery,
+      deletedQuery,
+      missedQuery
+    ]);
+
+    // 5. Ambil angkanya dari hasil
+    const doneCount = doneResult.data().count;
+    const deletedCount = deletedResult.data().count;
+    const missedCount = missedResult.data().count;
+
+    // 6. Kirim sebagai JSON
+    res.status(200).send({
+      completed: doneCount,
+      missed: missedCount,
+      deleted: deletedCount
+    });
+
+  } catch (error) {
+    console.error('Error mengambil statistik tugas:', error);
+    if (error.message.includes('requires an index')) {
+        return res.status(500).send({ 
+            message: 'Server Error: Diperlukan Composite Index di Firestore. Cek log server untuk link pembuatan indeks.' 
+        });
+    }
     res.status(500).send({ message: 'Server Error', error: error.message });
   }
 });
