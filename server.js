@@ -220,46 +220,61 @@ app.post('/api/profile/image', authMiddleware, async (req, res) => {
  * Membuat 'task' baru di dalam subcollection pengguna.
  */
 app.post('/api/tasks', authMiddleware, async (req, res) => {
-  try {
-    const uid = req.user.uid;
-    // Ambil data dari body, sesuai struktur di gambar Anda
-    const { title, details, category, dueDate, priority } = req.body;
+  try {
+    const uid = req.user.uid;
+    const { title, details, category, dueDate, priority } = req.body;
 
-    if (!title) {
-      return res.status(400).send({ message: 'Title (judul) tidak boleh kosong' });
-    }
+    if (!title) {
+      return res.status(400).send({ message: 'Title (judul) tidak boleh kosong' });
+    }
 
-    // Tentukan path ke subcollection 'tasks' milik pengguna
-    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
+    // Tentukan path ke subcollection 'tasks' milik pengguna
+    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
 
-    const newTask = {
-      userId: uid, // Tetap simpan ini, bagus untuk security rules
-      title: title,
-      details: details || "",
-      category: category || "None",
-      priority: priority || "None",
-      status: "pending", // Status default saat dibuat
-      flowDurationMillis: 1800000,
-      endTimeMillis: 0,
-      
-      // Gunakan timestamp server untuk konsistensi
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      
-      // Sesuai struktur Anda
-      dueDate: dueDate ? new Date(dueDate) : null,
-      completedAt: null,
-      deletedAt: null
-      // Anda bisa tambahkan field lain seperti 'flowDurationMillis' di sini
-    };
+    // 1. Buat ID dokumen baru terlebih dahulu
+    const newDocRef = tasksCollection.doc();
+    const newTaskId = newDocRef.id;
 
-    const docRef = await tasksCollection.add(newTask);
+    const newTask = {
+      // Perbaikan Utama: 'id' harus ada di dalam dokumen
+      id: newTaskId, 
 
-    res.status(201).send({ id: docRef.id, ...newTask });
-  } catch (error) {
-    console.error('Error membuat task:', error);
-    res.status(500).send({ message: 'Server Error', error: error.message });
-  }
+      // Data dari aplikasi
+      userId: uid,
+      title: title,
+      details: details || "",
+      category: category || "None", // Sesuai Task.kt
+      priority: priority || "None", // Sesuai Task.kt
+      status: "pending",
+
+      // Perbaikan Kritis: dueDate tidak boleh null
+      // Gunakan Timestamp.fromDate() untuk konsistensi (jika menggunakan admin SDK)
+      // atau new Date() (jika menggunakan client SDK)
+      dueDate: dueDate ? admin.firestore.Timestamp.fromDate(new Date(dueDate)) : admin.firestore.Timestamp.now(),
+
+      // Field dari Task.kt
+      time: "", // Sesuai Task.kt
+      endTimeMillis: 0,
+      flowDurationMillis: 1800000, // Anda memberi default 30 menit, ini OK
+      
+      // Timestamps
+      createdAt: admin.firestore.FieldValue.serverTimestamp(), // Sesuai API Anda
+      completedAt: null,
+      deletedAt: null,
+      missedAt: null // Sesuai Task.kt
+    };
+
+    // Gunakan .set() alih-alih .add()
+    await newDocRef.set(newTask);
+
+    // Mengirim kembali objek yang baru dibuat (tanpa createdAt serverTimestamp)
+    // Untuk mendapatkan data lengkap, Anda bisa fetch lagi, tapi ini cukup
+    res.status(201).send({ ...newTask, createdAt: new Date().toISOString() }); // Kirim respons yang representatif
+
+  } catch (error) {
+    console.error('Error membuat task:', error);
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
 });
 
 
