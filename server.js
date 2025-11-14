@@ -16,42 +16,14 @@ cloudinary.config({
 // 2. Inisialisasi Firebase Admin
 //    SDK secara otomatis akan mencari variabel lingkungan 
 //    'GOOGLE_APPLICATION_CREDENTIALS' yang kita set di .env
-// 2. Inisialisasi Firebase Admin
-let credential;
-
-if (process.env.NODE_ENV === "production") {
-  // Di Vercel (Produksi)
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
-  
-  if (!privateKey || !process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL) {
-    console.error("FIREBASE ENVIRONMENT VARIABLES TIDAK LENGKAP!");
-    process.exit(1);
-  }
-
-  credential = admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    privateKey: privateKey.replace(/\\n/g, "\n"),
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
-  });
-
-  console.log("Production: Menggunakan credential dari environment variables");
-
-} else {
-  // Di lokal (Development)
-  credential = admin.credential.applicationDefault();
-  console.log("Development: Menggunakan credential dari file lokal");
-}
-
 try {
-  if (admin.apps.length === 0) {
-    admin.initializeApp({ credential });
-    console.log("✅ Berhasil terhubung ke Firebase Admin");
-    console.log("Project ID:", process.env.FIREBASE_PROJECT_ID || "dari file lokal");
-  }
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault()
+  });
+  console.log("Berhasil terhubung ke Firebase Admin");
 } catch (error) {
-  console.error("❌ Error koneksi Firebase Admin:", error);
-  console.error("Detail Error:", error.message); 
-  process.exit(1);
+  console.error("Error koneksi Firebase Admin:", error);
+  process.exit(1); // Keluar dari aplikasi jika tidak bisa konek
 }
 
 // Buat "shortcut" untuk mengakses Firestore
@@ -65,25 +37,7 @@ const authMiddleware = require('./authMiddleware');
 //    'cors' mengizinkan frontend kita (di domain berbeda) mengakses API ini
 app.use(cors()); 
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
-app.use(express.json({ 
-  limit: '50mb',
-  verify: (req, res, buf) => {
-    req.rawBody = buf.toString();
-  }
-}));
-
-app.use(express.urlencoded({ 
-  extended: true, 
-  limit: '50mb' 
-}));
-
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
-  console.log('Headers:', JSON.stringify(req.headers));
-  console.log('Content-Length:', req.headers['content-length']);
-  console.log('Body size:', req.body ? JSON.stringify(req.body).length : 0);
-  next();
-});
+app.use(express.json()); 
 
 app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
@@ -153,25 +107,17 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
-  res.status(200).send('Selamat datang di API To-Do List. Server berjalan.');
-});
-
 app.get('/api/profile', authMiddleware, async (req, res) => {
-  try {
-    console.log("Masuk ke handler /api/profile"); // LOG PENTING
-    const uid = req.user.uid; 
-    console.log("Handler: UID diterima:", uid); // LOG PENTING
-    const userDoc = await db.collection('users').doc(uid).get();
-    console.log("Berhasil mengambil data profil dari Firestore"); // LOG PENTING
-    if (!userDoc.exists) {
-      return res.status(404).send({ message: 'Profil pengguna tidak ditemukan' });
-    }
-    res.status(200).send(userDoc.data());
-  } catch (error) {
-    console.log("Handler: ERROR mengambil profil:", error.message); // LOG PENTING
-    res.status(500).send({ message: 'Server Error', error: error.message });
-  }
+  try {
+    const uid = req.user.uid; 
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).send({ message: 'Profil pengguna tidak ditemukan' });
+    }
+    res.status(200).send(userDoc.data());
+  } catch (error) {
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
 });
 
 app.put('/api/profile', authMiddleware, async (req, res) => {
@@ -778,5 +724,24 @@ app.post('/api/stats/streak/complete', authMiddleware, async (req, res) => {
     res.status(500).send({ message: 'Server Error', error: error.message });
   }
 });
+
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, () => {
+    console.log(`Server berjalan di http://localhost:${PORT}`);
+  });
+}
+
+let credential;
+
+if (process.env.NODE_ENV === 'production') {
+  credential = admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+  });
+} else {
+  credential = admin.credential.applicationDefault();
+}
 
 module.exports = app;
