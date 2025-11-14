@@ -20,35 +20,38 @@ cloudinary.config({
 let credential;
 
 if (process.env.NODE_ENV === "production") {
-  // Di Vercel (Produksi), ambil kredensial dari Environment Variables
-  // Ini adalah kode yang LEBIH AMAN
+  // Di Vercel (Produksi)
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+  
+  if (!privateKey || !process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL) {
+    console.error("FIREBASE ENVIRONMENT VARIABLES TIDAK LENGKAP!");
+    process.exit(1);
+  }
+
   credential = admin.credential.cert({
     projectId: process.env.FIREBASE_PROJECT_ID,
-    // Cek dulu apakah privateKey ada, baru lakukan .replace()
-    privateKey: process.env.FIREBASE_PRIVATE_KEY 
-      ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n") 
-      : undefined,
+    privateKey: privateKey.replace(/\\n/g, "\n"),
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL
   });
 
+  console.log("Production: Menggunakan credential dari environment variables");
+
 } else {
-  // Di lokal (Development), gunakan file service account (creds.json)
+  // Di lokal (Development)
   credential = admin.credential.applicationDefault();
+  console.log("Development: Menggunakan credential dari file lokal");
 }
 
 try {
-  // Cek agar tidak terjadi inisialisasi ganda
   if (admin.apps.length === 0) {
     admin.initializeApp({ credential });
-    console.log("Mencoba inisialisasi Firebase Admin...");
-    console.log("Project ID (dari env):", process.env.FIREBASE_PROJECT_ID);
-    console.log("Berhasil terhubung ke Firebase Admin");
+    console.log("✅ Berhasil terhubung ke Firebase Admin");
+    console.log("Project ID:", process.env.FIREBASE_PROJECT_ID || "dari file lokal");
   }
 } catch (error) {
-  console.error("Error koneksi Firebase Admin:", error);
-  // Log error yang lebih detail untuk debugging
+  console.error("❌ Error koneksi Firebase Admin:", error);
   console.error("Detail Error:", error.message); 
-  process.exit(1); // Keluar dari aplikasi jika tidak bisa konek
+  process.exit(1);
 }
 
 // Buat "shortcut" untuk mengakses Firestore
@@ -62,7 +65,7 @@ const authMiddleware = require('./authMiddleware');
 //    'cors' mengizinkan frontend kita (di domain berbeda) mengakses API ini
 app.use(cors()); 
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
-//app.use(express.json()); 
+app.use(express.json()); 
 
 app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
