@@ -5,7 +5,8 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "firebase": "^12.5.0",
-    "firebase-admin": "^13.6.0"
+    "firebase-admin": "^13.6.0",
+    "serverless-http": "^4.0.0"
   },
   "name": "api-backend",
   "version": "1.0.0",
