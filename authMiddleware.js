@@ -10,6 +10,7 @@ const authMiddleware = async (req, res, next) => {
   }
 
   const idToken = authHeader.split('Bearer ')[1];
+  console.log("Middleware: Mencoba verifikasi token...");
 
   // 3. Verifikasi token menggunakan Firebase Admin
   try {
@@ -18,7 +19,7 @@ const authMiddleware = async (req, res, next) => {
     // 4. Jika token valid, simpan info pengguna di 'req.user'
     //    Supaya bisa dipakai di endpoint lain (PENTING!)
     req.user = decodedToken;
-    
+    console.log("Middleware: Token berhasil diverifikasi. UID:", decodedToken.uid);
     // 5. Lanjutkan ke request berikutnya (endpoint)
     next(); 
   } catch (error) {

@@ -40,6 +40,8 @@ try {
   // Cek agar tidak terjadi inisialisasi ganda
   if (admin.apps.length === 0) {
     admin.initializeApp({ credential });
+    console.log("Mencoba inisialisasi Firebase Admin...");
+    console.log("Project ID (dari env):", process.env.FIREBASE_PROJECT_ID);
     console.log("Berhasil terhubung ke Firebase Admin");
   }
 } catch (error) {
@@ -136,8 +138,10 @@ app.get('/', (req, res) => {
 
 app.get('/api/profile', authMiddleware, express.json(),async (req, res) => {
   try {
+    console.log("Masuk ke handler /api/profile");
     const uid = req.user.uid; 
     const userDoc = await db.collection('users').doc(uid).get();
+    console.log("Berhasil mengambil data profil dari Firestore");
     if (!userDoc.exists) {
       return res.status(404).send({ message: 'Profil pengguna tidak ditemukan' });
     }
