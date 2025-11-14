@@ -130,6 +130,10 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.status(200).send('Selamat datang di API To-Do List. Server berjalan.');
+});
+
 app.get('/api/profile', authMiddleware, async (req, res) => {
   try {
     const uid = req.user.uid; 
