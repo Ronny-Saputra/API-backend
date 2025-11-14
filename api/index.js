@@ -1,7 +1,5 @@
 
 const serverless = require("serverless-http");
-const admin = require("firebase-admin");
-
 const app = require("../server.js");
 
 let credential;
