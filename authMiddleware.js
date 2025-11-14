@@ -23,6 +23,7 @@ const authMiddleware = async (req, res, next) => {
     // 5. Lanjutkan ke request berikutnya (endpoint)
     next(); 
   } catch (error) {
+    console.log("Middleware: GAGAL verifikasi token:", error.message);
     console.error('Error verifikasi token:', error);
     return res.status(403).send({ message: 'Forbidden: Token tidak valid' });
   }
