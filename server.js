@@ -60,7 +60,7 @@ const authMiddleware = require('./authMiddleware');
 //    'cors' mengizinkan frontend kita (di domain berbeda) mengakses API ini
 app.use(cors()); 
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
-//app.use(express.json()); 
+app.use(express.json()); 
 
 app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
