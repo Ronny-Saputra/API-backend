@@ -13,3 +13,14 @@ module.exports = serverless(app, {
   }
 });
 
+module.exports = async (req, res) => {
+  // ✅ Hapus body dari GET request untuk menghindari content-length mismatch
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    delete req.headers['content-length'];
+    req.body = undefined;
+  }
+  
+  const handler = serverless(app);
+  return handler(req, res);
+};
+
