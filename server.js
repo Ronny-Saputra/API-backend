@@ -16,9 +16,28 @@ cloudinary.config({
 // 2. Inisialisasi Firebase Admin
 //    SDK secara otomatis akan mencari variabel lingkungan 
 //    'GOOGLE_APPLICATION_CREDENTIALS' yang kita set di .env
+let credential;
+
+if (process.env.NODE_ENV === 'production') {
+  // 2a. Untuk Production (Vercel)
+  // Ambil kredensial dari environment variables yang di-set di Vercel
+  credential = admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'), 
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+  });
+} else {
+  // 2b. Untuk Development (Lokal)
+  // Ambil kredensial dari file service account via .env
+  // Pastikan .env Anda memiliki baris:
+  // GOOGLE_APPLICATION_CREDENTIALS="./creds.json" (sesuaikan path-nya)
+  credential = admin.credential.applicationDefault();
+}
+
+// 3. Inisialisasi Aplikasi Firebase Admin
 try {
   admin.initializeApp({
-    credential: admin.credential.applicationDefault()
+    credential: credential // <-- Gunakan kredensial yang sudah ditentukan
   });
   console.log("Berhasil terhubung ke Firebase Admin");
 } catch (error) {
@@ -732,16 +751,5 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-let credential;
-
-if (process.env.NODE_ENV === 'production') {
-  credential = admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
-  });
-} else {
-  credential = admin.credential.applicationDefault();
-}
 
 module.exports = app;
