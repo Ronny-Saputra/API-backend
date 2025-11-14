@@ -31,7 +31,7 @@ const db = admin.firestore();
 
 // 3. Inisialisasi Aplikasi Express
 const app = express();
-const PORT = process.env.PORT || 3001; // Gunakan port 3001
+module.exports = app;
 const authMiddleware = require('./authMiddleware');
 
 // 4. Terapkan Middleware
@@ -725,7 +725,22 @@ app.post('/api/stats/streak/complete', authMiddleware, async (req, res) => {
     res.status(500).send({ message: 'Server Error', error: error.message });
   }
 });
-// 6. Jalankan Server
-app.listen(PORT, () => {
-  console.log(`Server berjalan di http://localhost:${PORT}`);
-});
+
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3001;
+  app.listen(PORT, () => {
+    console.log(`Server berjalan di http://localhost:${PORT}`);
+  });
+}
+
+let credential;
+
+if (process.env.NODE_ENV === 'production') {
+  credential = admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
+  });
+} else {
+  credential = admin.credential.applicationDefault();
+}
