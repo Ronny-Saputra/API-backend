@@ -136,19 +136,21 @@ app.get('/', (req, res) => {
   res.status(200).send('Selamat datang di API To-Do List. Server berjalan.');
 });
 
-app.get('/api/profile', authMiddleware,async (req, res) => {
-  try {
-    console.log("Masuk ke handler /api/profile");
-    const uid = req.user.uid; 
-    const userDoc = await db.collection('users').doc(uid).get();
-    console.log("Berhasil mengambil data profil dari Firestore");
-    if (!userDoc.exists) {
-      return res.status(404).send({ message: 'Profil pengguna tidak ditemukan' });
-    }
-    res.status(200).send(userDoc.data());
-  } catch (error) {
-    res.status(500).send({ message: 'Server Error', error: error.message });
-  }
+app.get('/api/profile', authMiddleware, async (req, res) => {
+  try {
+    console.log("Masuk ke handler /api/profile"); // LOG PENTING
+    const uid = req.user.uid; 
+    console.log("Handler: UID diterima:", uid); // LOG PENTING
+    const userDoc = await db.collection('users').doc(uid).get();
+    console.log("Berhasil mengambil data profil dari Firestore"); // LOG PENTING
+    if (!userDoc.exists) {
+      return res.status(404).send({ message: 'Profil pengguna tidak ditemukan' });
+    }
+    res.status(200).send(userDoc.data());
+  } catch (error) {
+    console.log("Handler: ERROR mengambil profil:", error.message); // LOG PENTING
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
 });
 
 app.put('/api/profile', authMiddleware, async (req, res) => {
