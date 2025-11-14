@@ -136,7 +136,7 @@ app.get('/', (req, res) => {
   res.status(200).send('Selamat datang di API To-Do List. Server berjalan.');
 });
 
-app.get('/api/profile', authMiddleware, express.json(),async (req, res) => {
+app.get('/api/profile', authMiddleware,async (req, res) => {
   try {
     console.log("Masuk ke handler /api/profile");
     const uid = req.user.uid; 
