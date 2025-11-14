@@ -60,7 +60,7 @@ const authMiddleware = require('./authMiddleware');
 //    'cors' mengizinkan frontend kita (di domain berbeda) mengakses API ini
 app.use(cors()); 
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
-app.use(express.json()); 
+//app.use(express.json()); 
 
 app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
@@ -134,7 +134,7 @@ app.get('/', (req, res) => {
   res.status(200).send('Selamat datang di API To-Do List. Server berjalan.');
 });
 
-app.get('/api/profile', authMiddleware, async (req, res) => {
+app.get('/api/profile', authMiddleware, express.json(),async (req, res) => {
   try {
     const uid = req.user.uid; 
     const userDoc = await db.collection('users').doc(uid).get();
