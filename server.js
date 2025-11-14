@@ -16,16 +16,21 @@ cloudinary.config({
 // 2. Inisialisasi Firebase Admin
 //    SDK secara otomatis akan mencari variabel lingkungan 
 //    'GOOGLE_APPLICATION_CREDENTIALS' yang kita set di .env
+// 2. Inisialisasi Firebase Admin
 let credential;
 
 if (process.env.NODE_ENV === "production") {
   // Di Vercel (Produksi), ambil kredensial dari Environment Variables
+  // Ini adalah kode yang LEBIH AMAN
   credential = admin.credential.cert({
     projectId: process.env.FIREBASE_PROJECT_ID,
-    // Pastikan private key mengganti karakter \n
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"), 
+    // Cek dulu apakah privateKey ada, baru lakukan .replace()
+    privateKey: process.env.FIREBASE_PRIVATE_KEY 
+      ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n") 
+      : undefined,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL
   });
+
 } else {
   // Di lokal (Development), gunakan file service account (creds.json)
   credential = admin.credential.applicationDefault();
@@ -39,6 +44,8 @@ try {
   }
 } catch (error) {
   console.error("Error koneksi Firebase Admin:", error);
+  // Log error yang lebih detail untuk debugging
+  console.error("Detail Error:", error.message); 
   process.exit(1); // Keluar dari aplikasi jika tidak bisa konek
 }
 
