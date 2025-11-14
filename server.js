@@ -65,7 +65,25 @@ const authMiddleware = require('./authMiddleware');
 //    'cors' mengizinkan frontend kita (di domain berbeda) mengakses API ini
 app.use(cors()); 
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
-app.use(express.json()); 
+app.use(express.json({ 
+  limit: '50mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
+
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '50mb' 
+}));
+
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  console.log('Headers:', JSON.stringify(req.headers));
+  console.log('Content-Length:', req.headers['content-length']);
+  console.log('Body size:', req.body ? JSON.stringify(req.body).length : 0);
+  next();
+});
 
 app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
