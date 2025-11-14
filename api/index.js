@@ -1,23 +1,7 @@
-
 const serverless = require("serverless-http");
+
+// Impor 'app' yang SUDAH LENGKAP dari server.js
 const app = require("../server.js");
 
-let credential;
-
-if (process.env.NODE_ENV === "production") {
-  credential = admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL
-  });
-} else {
-  credential = admin.credential.applicationDefault();
-}
-
-admin.initializeApp({ credential });
-
-app.get("/", (req, res) => {
-  res.json({ message: "Serverless Firebase-Express is Running!" });
-});
-
+// Ekspor 'app' tersebut agar bisa dijalankan Vercel
 module.exports = serverless(app);
