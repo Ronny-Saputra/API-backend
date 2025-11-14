@@ -54,7 +54,6 @@ const db = admin.firestore();
 
 // 3. Inisialisasi Aplikasi Express
 const app = express();
-module.exports = app;
 const authMiddleware = require('./authMiddleware');
 
 // 4. Terapkan Middleware
@@ -749,3 +748,4 @@ app.post('/api/stats/streak/complete', authMiddleware, async (req, res) => {
   }
 });
 
+module.exports = app;
