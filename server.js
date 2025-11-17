@@ -54,30 +54,7 @@ const authMiddleware = require('./authMiddleware');
 
 // 4. Terapkan Middleware
 //    'cors' mengizinkan frontend kita (di domain berbeda) mengakses API ini
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Daftar origin yang diizinkan
-    const allowedOrigins = [
-      'https://todolist-43.web.app',
-    ];
-    
-    // Izinkan request tanpa origin (seperti mobile apps atau curl)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
-
-// Handle preflight requests
-app.options('*', cors(corsOptions));
+app.use(cors()); 
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
 app.use(express.json()); 
 
