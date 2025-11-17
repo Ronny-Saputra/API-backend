@@ -58,10 +58,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Daftar origin yang diizinkan
     const allowedOrigins = [
-      'https://todolist-43.web.app/',
-      'https://your-firebase-app.firebaseapp.com',
-      'http://localhost:5000', // Untuk testing lokal
-      'http://localhost:3000'  // Untuk testing lokal
+      'https://todolist-43.web.app',
     ];
     
     // Izinkan request tanpa origin (seperti mobile apps atau curl)
