@@ -54,7 +54,33 @@ const authMiddleware = require('./authMiddleware');
 
 // 4. Terapkan Middleware
 //    'cors' mengizinkan frontend kita (di domain berbeda) mengakses API ini
-app.use(cors()); 
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Daftar origin yang diizinkan
+    const allowedOrigins = [
+      'https://todolist-43.web.app/',
+      'https://your-firebase-app.firebaseapp.com',
+      'http://localhost:5000', // Untuk testing lokal
+      'http://localhost:3000'  // Untuk testing lokal
+    ];
+    
+    // Izinkan request tanpa origin (seperti mobile apps atau curl)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 //    'express.json' mengizinkan server membaca data JSON dari 'req.body'
 app.use(express.json()); 
 
