@@ -244,8 +244,7 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
   try {
     const uid = req.user.uid;
     
-    // 1. AMBIL SEMUA DATA DARI FRONTEND (req.body)
-    // Tambahkan time, endTimeMillis, flowDurationMillis di sini
+    // Ambil semua data dari body request
     const { 
         title, 
         details, 
@@ -265,46 +264,49 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
     const newDocRef = tasksCollection.doc();
     const newTaskId = newDocRef.id;
 
-    // 2. SUSUN OBJEK SESUAI GAMBAR ANDA
+    // === MENYUSUN OBJEK SESUAI 'Task.kt' DI ANDROID ===
     const newTask = {
       id: newTaskId,
       userId: uid,
       
       // String Fields
       title: title,
-      details: details || "",       // Sesuai gambar: String
-      category: category || "None", // Sesuai gambar: "None" jika kosong
-      priority: priority || "None", // Sesuai gambar: "None" jika kosong
-      time: time || "",             // Sesuai gambar: "" jika kosong
+      details: details || "",       // Android: inputDetails.text.toString().trim()
+      
+      // PERBAIKAN: Di Android category default "", bukan "None"
+      category: category || "",     
+      
+      priority: priority || "None", // Android: default "None"
+      time: time || "",             // Android: default ""
       
       // Status & Timestamps
-      status: "pending", // Default awal selalu pending. (Di gambar "missed" karena tugas sudah lewat)
+      status: "pending",            // Android: default "pending"
       
-      // Perubahan Penting: Parse tanggal dari ISO String Frontend ke Firestore Timestamp
+      // Date & Time Logic
+      // Android mengirim dueDate sebagai Timestamp. Kita konversi ISO string dari frontend.
       dueDate: dueDate 
         ? admin.firestore.Timestamp.fromDate(new Date(dueDate)) 
         : admin.firestore.Timestamp.now(),
       
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(), // Android: Timestamp.now()
       
-      // Nullable Fields (Sesuai gambar: null)
+      // Nullable Fields (Sesuai Android: var completedAt: Timestamp? = null)
       completedAt: null,
       deletedAt: null,
       missedAt: null,
 
-      // Number Fields (Sesuai gambar: Angka, bukan String)
-      // Gunakan Number() atau parseInt() untuk memastikan tipe datanya benar
+      // Number Fields (Long di Android = Number di Firestore)
       endTimeMillis: endTimeMillis ? Number(endTimeMillis) : 0, 
-      flowDurationMillis: flowDurationMillis ? Number(flowDurationMillis) : 1800000 // Default 30 menit (1800000)
+      flowDurationMillis: flowDurationMillis ? Number(flowDurationMillis) : 0 // Default 0 jika tidak ada flow timer
     };
 
+    // Gunakan .set() agar struktur dokumen benar-benar baru dan bersih
     await newDocRef.set(newTask);
 
-    // Kembalikan respons
+    // Kirim respon ke frontend (konversi timestamp ke string agar JSON valid)
     res.status(201).send({ 
         ...newTask, 
-        // Konversi timestamp ke string untuk respons JSON agar frontend tidak error membaca obj Timestamp
-        dueDate: newTask.dueDate.toDate().toISOString(),
+        dueDate: dueDate, // Kembalikan string aslinya
         createdAt: new Date().toISOString() 
     });
 
