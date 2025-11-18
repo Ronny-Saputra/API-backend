@@ -62,80 +62,95 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.get('/api/tasks', authMiddleware, async (req, res) => {
   try {
     const uid = req.user.uid;
-    // 1. Ambil 'date' DARI req.query
-    const { search, month, date } = req.query; 
+    const { search, month, date, status } = req.query; 
 
     const tasksCollection = db.collection('users').doc(uid).collection('tasks');
     
-    // 2. Mulai kueri dasar
-    let query = tasksCollection.where('deletedAt', '==', null);
+    // 1. Query Dasar
+    let query = tasksCollection;
 
-    // 3. Terapkan filter TANGGAL (PRIORITAS UTAMA)
-    if (date) {
-      // 'date' diharapkan dalam format "YYYY-MM-DD"
-      // Kita perlu membuat rentang waktu dari awal hari hingga akhir hari
-      // PENTING: Gunakan zona waktu UTC agar konsisten
-      const startDate = new Date(date + 'T00:00:00.000Z');
-      const endDate = new Date(date + 'T23:59:59.999Z');
-
-      // Terapkan filter rentang pada 'dueDate'
-      query = query.where('dueDate', '>=', startDate);
-      query = query.where('dueDate', '<=', endDate);
-    
-    } else if (month) {
-      // 4. ATAU terapkan filter BULAN (jika tidak ada filter tanggal)
-      const year = 2025; // Asumsi tahun, sesuai logika frontend Anda
-      const monthIndex = parseInt(month) - 1; 
-      
-      const startDate = new Date(year, monthIndex, 1);
-      const endDate = new Date(year, monthIndex + 1, 0, 23, 59, 59);
-
-      query = query.where('dueDate', '>=', startDate);
-      query = query.where('dueDate', '<=', endDate);
+    // 2. Filter Status
+    // Logika: Tampilkan yang belum dihapus (deletedAt == null), kecuali user minta status 'deleted'
+    if (status === 'deleted') {
+      query = query.where('deletedAt', '!=', null);
+    } else if (status) {
+       // Filter spesifik: pending/completed/missed
+       // Pastikan juga deletedAt null agar task sampah tidak masuk
+      query = query.where('deletedAt', '==', null).where('status', '==', status);
+    } else {
+      // Default (misal untuk kalender): Ambil yang pending saja
+      query = query.where('deletedAt', '==', null).where('status', '==', 'pending');
     }
     
-    // 5. Jalankan kueri Firestore
-    //    Kita urutkan berdasarkan 'dueDate' sekarang, yang lebih masuk akal
-    //    untuk tampilan kalender/pencarian
+    // 3. Eksekusi Query
+    // Kita urutkan berdasarkan dueDate agar rapi
     const snapshot = await query.orderBy('dueDate', 'asc').get();
 
-    let tasks = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
+    // 4. MAPPING DATA (BAGIAN PENTING)
+    // Di sini kita konversi data Mobile agar cocok dengan Web
+    let tasks = snapshot.docs.map(doc => {
+      const data = doc.data();
 
-    // 6. Terapkan filter SEARCH (setelah mengambil data)
+      // A. Konversi Timestamp Firestore ke Native Date JS
+      let dueDateObj = null;
+      if (data.dueDate && data.dueDate.toDate) {
+        dueDateObj = data.dueDate.toDate(); // Cara standar Firestore
+      } else if (data.dueDate) {
+        dueDateObj = new Date(data.dueDate); // Fallback jika tersimpan sbg string
+      }
+
+      // B. GENERATE field 'date' (YYYY-MM-DD) jika kosong
+      // Ini kuncinya: Jika data dari Mobile tidak punya 'date', kita buatkan dari 'dueDate'
+      let dateString = data.date; 
+      if (!dateString && dueDateObj) {
+        const year = dueDateObj.getFullYear();
+        const month = String(dueDateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dueDateObj.getDate()).padStart(2, '0');
+        dateString = `${year}-${month}-${day}`;
+      }
+
+      return {
+        id: doc.id,
+        ...data,
+        // Pastikan field ini ada untuk Frontend Web
+        date: dateString || "", 
+        dueDate: dueDateObj ? dueDateObj.toISOString() : null,
+        
+        // Pastikan field lain tidak undefined
+        category: data.category || "", 
+        details: data.details || "",
+        time: data.time || ""
+      };
+    });
+
+    // 5. Filter Lanjutan (Search & Date Range)
+    // Dilakukan di JavaScript (setelah fetch) karena Firestore terbatas untuk query range + filter ganda
+    
+    if (date) {
+       // Filter by Date String (YYYY-MM-DD) yang diminta frontend
+       tasks = tasks.filter(t => t.date === date);
+    } else if (month) {
+       // Filter by Month (1-12)
+       // month param biasanya string "1", "2", dst.
+       tasks = tasks.filter(t => {
+           if (!t.dueDate) return false;
+           const d = new Date(t.dueDate);
+           return (d.getMonth() + 1) == month;
+       });
+    }
+
     if (search) {
       const lowerCaseQuery = search.toLowerCase();
       tasks = tasks.filter(task => 
-        (task.title && task.title.toLowerCase().includes(lowerCaseQuery))
+        (task.title && task.title.toLowerCase().includes(lowerCaseQuery)) ||
+        (task.category && task.category.toLowerCase().includes(lowerCaseQuery))
       );
     }
 
-    // 7. Kirim hasil
     res.status(200).send(tasks);
 
   } catch (error) {
     console.error('Error mengambil tasks:', error);
-    // Jika error karena indeks, Firebase akan memberi tahu di log
-    if (error.message.includes('requires an index')) {
-        return res.status(500).send({ 
-            message: 'Server Error: Diperlukan Composite Index di Firestore. Cek log server untuk link pembuatan indeks.' 
-        });
-    }
-    res.status(500).send({ message: 'Server Error', error: error.message });
-  }
-});
-
-app.get('/api/profile', authMiddleware, async (req, res) => {
-  try {
-    const uid = req.user.uid; 
-    const userDoc = await db.collection('users').doc(uid).get();
-    if (!userDoc.exists) {
-      return res.status(404).send({ message: 'Profil pengguna tidak ditemukan' });
-    }
-    res.status(200).send(userDoc.data());
-  } catch (error) {
     res.status(500).send({ message: 'Server Error', error: error.message });
   }
 });
