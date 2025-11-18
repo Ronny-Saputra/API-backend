@@ -238,62 +238,80 @@ app.post('/api/profile/image', authMiddleware, async (req, res) => {
  * [POST] /api/tasks
  * Membuat 'task' baru di dalam subcollection pengguna.
  */
+// File: server.js
+
 app.post('/api/tasks', authMiddleware, async (req, res) => {
-  try {
-    const uid = req.user.uid;
-    const { title, details, category, dueDate, priority } = req.body;
+  try {
+    const uid = req.user.uid;
+    
+    // 1. AMBIL SEMUA DATA DARI FRONTEND (req.body)
+    // Tambahkan time, endTimeMillis, flowDurationMillis di sini
+    const { 
+        title, 
+        details, 
+        category, 
+        dueDate, 
+        priority, 
+        time, 
+        endTimeMillis, 
+        flowDurationMillis 
+    } = req.body;
 
-    if (!title) {
-      return res.status(400).send({ message: 'Title (judul) tidak boleh kosong' });
-    }
+    if (!title) {
+      return res.status(400).send({ message: 'Title (judul) tidak boleh kosong' });
+    }
 
-    // Tentukan path ke subcollection 'tasks' milik pengguna
-    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
-
-    // 1. Buat ID dokumen baru terlebih dahulu
+    const tasksCollection = db.collection('users').doc(uid).collection('tasks');
     const newDocRef = tasksCollection.doc();
     const newTaskId = newDocRef.id;
 
-    const newTask = {
-      // Perbaikan Utama: 'id' harus ada di dalam dokumen
-      id: newTaskId, 
+    // 2. SUSUN OBJEK SESUAI GAMBAR ANDA
+    const newTask = {
+      id: newTaskId,
+      userId: uid,
+      
+      // String Fields
+      title: title,
+      details: details || "",       // Sesuai gambar: String
+      category: category || "None", // Sesuai gambar: "None" jika kosong
+      priority: priority || "None", // Sesuai gambar: "None" jika kosong
+      time: time || "",             // Sesuai gambar: "" jika kosong
+      
+      // Status & Timestamps
+      status: "pending", // Default awal selalu pending. (Di gambar "missed" karena tugas sudah lewat)
+      
+      // Perubahan Penting: Parse tanggal dari ISO String Frontend ke Firestore Timestamp
+      dueDate: dueDate 
+        ? admin.firestore.Timestamp.fromDate(new Date(dueDate)) 
+        : admin.firestore.Timestamp.now(),
+      
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      
+      // Nullable Fields (Sesuai gambar: null)
+      completedAt: null,
+      deletedAt: null,
+      missedAt: null,
 
-      // Data dari aplikasi
-      userId: uid,
-      title: title,
-      details: details || "",
-      category: category || "None", // Sesuai Task.kt
-      priority: priority || "None", // Sesuai Task.kt
-      status: "pending",
+      // Number Fields (Sesuai gambar: Angka, bukan String)
+      // Gunakan Number() atau parseInt() untuk memastikan tipe datanya benar
+      endTimeMillis: endTimeMillis ? Number(endTimeMillis) : 0, 
+      flowDurationMillis: flowDurationMillis ? Number(flowDurationMillis) : 1800000 // Default 30 menit (1800000)
+    };
 
-      // Perbaikan Kritis: dueDate tidak boleh null
-      // Gunakan Timestamp.fromDate() untuk konsistensi (jika menggunakan admin SDK)
-      // atau new Date() (jika menggunakan client SDK)
-      dueDate: dueDate ? admin.firestore.Timestamp.fromDate(new Date(dueDate)) : admin.firestore.Timestamp.now(),
+    await newDocRef.set(newTask);
 
-      // Field dari Task.kt
-      time: "", // Sesuai Task.kt
-      endTimeMillis: 0,
-      flowDurationMillis: 1800000, // Anda memberi default 30 menit, ini OK
-      
-      // Timestamps
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), // Sesuai API Anda
-      completedAt: null,
-      deletedAt: null,
-      missedAt: null // Sesuai Task.kt
-    };
+    // Kembalikan respons
+    res.status(201).send({ 
+        ...newTask, 
+        // Konversi timestamp ke string untuk respons JSON agar frontend tidak error membaca obj Timestamp
+        dueDate: newTask.dueDate.toDate().toISOString(),
+        createdAt: new Date().toISOString() 
+    });
 
-    // Gunakan .set() alih-alih .add()
-    await newDocRef.set(newTask);
-
-    // Mengirim kembali objek yang baru dibuat (tanpa createdAt serverTimestamp)
-    // Untuk mendapatkan data lengkap, Anda bisa fetch lagi, tapi ini cukup
-    res.status(201).send({ ...newTask, createdAt: new Date().toISOString() }); // Kirim respons yang representatif
-
-  } catch (error) {
-    console.error('Error membuat task:', error);
-    res.status(500).send({ message: 'Server Error', error: error.message });
-  }
+  } catch (error) {
+    console.error('Error membuat task:', error);
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
 });
 
 
