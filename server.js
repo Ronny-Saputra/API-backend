@@ -268,77 +268,69 @@ app.post('/api/profile/image', authMiddleware, async (req, res) => {
  */
 // File: server.js
 
+const toInteger = (value) => {
+    const num = Number(value);
+    return isNaN(num) ? 0 : Math.floor(num); // Math.floor memaksa jadi integer
+};
+
+// Endpoint POST (Buat Baru)
 app.post('/api/tasks', authMiddleware, async (req, res) => {
   try {
     const uid = req.user.uid;
-    
-    // Ambil data mentah dari Frontend
     const { 
-        title, 
-        details, 
-        category, 
-        dueDate, 
-        priority, 
-        time, 
-        endTimeMillis, 
-        flowDurationMillis 
+        title, details, category, dueDate, priority, 
+        time, endTimeMillis, flowDurationMillis 
     } = req.body;
 
-    if (!title) {
-      return res.status(400).send({ message: 'Title (judul) tidak boleh kosong' });
-    }
+    if (!title) return res.status(400).send({ message: 'Title wajib diisi' });
 
     const tasksCollection = db.collection('users').doc(uid).collection('tasks');
     const newDocRef = tasksCollection.doc();
     const newTaskId = newDocRef.id;
 
-    // === MENYUSUN DATA AGAR 100% SESUAI FORMAT MOBILE (Task.kt) ===
+    // === FORMATTING STRICT UNTUK ANDROID KOTLIN ===
     const newTask = {
       id: newTaskId,
       userId: uid,
-      
-      // 1. String Fields
       title: title,
       details: details || "",
-      // PERBAIKAN: Mobile menggunakan string kosong "" untuk kategori default, bukan "None"
-      category: (category && category !== "None") ? category : "",
+      category: (category && category !== "None") ? category : "", // Pastikan string kosong jika tidak ada
       priority: priority || "None",
-      time: time || "",
       
-      // 2. Status
-      status: "pending", // Mobile tidak pakai field 'done', hanya 'status'
-      
-      // 3. Date & Time (CRITICAL FIX)
-      // Frontend mengirim String ISO, Backend MENGUBAHNYA ke Firestore Timestamp
+      // PENTING: Format string waktu. Mobile mungkin melakukan parsing string ini.
+      // Pastikan tidak ada spasi aneh.
+      time: time ? time.trim() : "", 
+
+      status: "pending",
+
+      // Date Handling
       dueDate: dueDate 
         ? admin.firestore.Timestamp.fromDate(new Date(dueDate)) 
         : admin.firestore.Timestamp.now(),
       
-      // Gunakan serverTimestamp agar tipe datanya Timestamp (bukan String)
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       
-      // 4. Nullable Timestamps (Sesuai Task.kt: var completedAt: Timestamp? = null)
+      // Nullable fields (biarkan null agar Kotlin membacanya sebagai null)
       completedAt: null,
       deletedAt: null,
       missedAt: null,
 
-      // 5. Number Fields (Pastikan tipe Number/Long, bukan String)
-      endTimeMillis: endTimeMillis ? Number(endTimeMillis) : 0, 
-      flowDurationMillis: flowDurationMillis ? Number(flowDurationMillis) : 0
+      // CRITICAL FIX UNTUK KOTLIN LONG:
+      // Gunakan Math.floor atau parseInt untuk memastikan tidak ada desimal
+      endTimeMillis: toInteger(endTimeMillis), 
+      flowDurationMillis: toInteger(flowDurationMillis)
     };
 
-    // Simpan ke Firestore
     await newDocRef.set(newTask);
 
-    // Kirim respon ke frontend (konversi Timestamp ke String HANYA untuk JSON response)
     res.status(201).send({ 
         ...newTask, 
-        dueDate: dueDate, // Kembalikan string aslinya ke frontend untuk tampilan
+        dueDate: dueDate,
         createdAt: new Date().toISOString() 
     });
 
   } catch (error) {
-    console.error('Error membuat task:', error);
+    console.error('Error post task:', error);
     res.status(500).send({ message: 'Server Error', error: error.message });
   }
 });
