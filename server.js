@@ -559,15 +559,7 @@ app.get('/api/stats/tasks', authMiddleware, async (req, res) => {
     // 1. Kueri untuk menghitung 'Done' (Selesai)
     // status == 'completed' DAN belum di-soft-delete
     const doneQuery = tasksCollection
-      .where('deletedAt', '==', null)
       .where('status', '==', 'completed')
-      .count()
-      .get();
-
-    // 2. Kueri untuk menghitung 'Deleted' (Dihapus)
-    // Cukup cek 'deletedAt' tidak null
-    const deletedQuery = tasksCollection
-      .where('deletedAt', '!=', null)
       .count()
       .get();
 
@@ -580,17 +572,24 @@ app.get('/api/stats/tasks', authMiddleware, async (req, res) => {
       .count()
       .get();
 
+        // 2. Kueri untuk menghitung 'Deleted' (Dihapus)
+    // Cukup cek 'deletedAt' tidak null
+    const deletedQuery = tasksCollection
+      .where('deletedAt', '!=', null)
+      .count()
+      .get();
+
     // 4. Jalankan semua 3 kueri secara paralel
     const [doneResult, deletedResult, missedResult] = await Promise.all([
       doneQuery,
-      deletedQuery,
-      missedQuery
+      missedQuery,
+      deletedQuery
     ]);
 
     // 5. Ambil angkanya dari hasil
     const doneCount = doneResult.data().count;
-    const deletedCount = deletedResult.data().count;
     const missedCount = missedResult.data().count;
+    const deletedCount = deletedResult.data().count;
 
     // 6. Kirim sebagai JSON
     res.status(200).send({
