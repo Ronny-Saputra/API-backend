@@ -155,6 +155,19 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
   }
 });
 
+app.get('/api/profile', authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user.uid; 
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (!userDoc.exists) {
+      return res.status(404).send({ message: 'Profil pengguna tidak ditemukan' });
+    }
+    res.status(200).send(userDoc.data());
+  } catch (error) {
+    res.status(500).send({ message: 'Server Error', error: error.message });
+  }
+});
+
 app.put('/api/profile', authMiddleware, async (req, res) => {
   try {
     const uid = req.user.uid;
@@ -259,7 +272,7 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
   try {
     const uid = req.user.uid;
     
-    // Ambil semua data dari body request
+    // Ambil data mentah dari Frontend
     const { 
         title, 
         details, 
@@ -279,49 +292,48 @@ app.post('/api/tasks', authMiddleware, async (req, res) => {
     const newDocRef = tasksCollection.doc();
     const newTaskId = newDocRef.id;
 
-    // === MENYUSUN OBJEK SESUAI 'Task.kt' DI ANDROID ===
+    // === MENYUSUN DATA AGAR 100% SESUAI FORMAT MOBILE (Task.kt) ===
     const newTask = {
       id: newTaskId,
       userId: uid,
       
-      // String Fields
+      // 1. String Fields
       title: title,
-      details: details || "",       // Android: inputDetails.text.toString().trim()
+      details: details || "",
+      // PERBAIKAN: Mobile menggunakan string kosong "" untuk kategori default, bukan "None"
+      category: (category && category !== "None") ? category : "",
+      priority: priority || "None",
+      time: time || "",
       
-      // PERBAIKAN: Di Android category default "", bukan "None"
-      category: category || "",     
+      // 2. Status
+      status: "pending", // Mobile tidak pakai field 'done', hanya 'status'
       
-      priority: priority || "None", // Android: default "None"
-      time: time || "",             // Android: default ""
-      
-      // Status & Timestamps
-      status: "pending",            // Android: default "pending"
-      
-      // Date & Time Logic
-      // Android mengirim dueDate sebagai Timestamp. Kita konversi ISO string dari frontend.
+      // 3. Date & Time (CRITICAL FIX)
+      // Frontend mengirim String ISO, Backend MENGUBAHNYA ke Firestore Timestamp
       dueDate: dueDate 
         ? admin.firestore.Timestamp.fromDate(new Date(dueDate)) 
         : admin.firestore.Timestamp.now(),
       
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), // Android: Timestamp.now()
+      // Gunakan serverTimestamp agar tipe datanya Timestamp (bukan String)
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
       
-      // Nullable Fields (Sesuai Android: var completedAt: Timestamp? = null)
+      // 4. Nullable Timestamps (Sesuai Task.kt: var completedAt: Timestamp? = null)
       completedAt: null,
       deletedAt: null,
       missedAt: null,
 
-      // Number Fields (Long di Android = Number di Firestore)
+      // 5. Number Fields (Pastikan tipe Number/Long, bukan String)
       endTimeMillis: endTimeMillis ? Number(endTimeMillis) : 0, 
-      flowDurationMillis: flowDurationMillis ? Number(flowDurationMillis) : 0 // Default 0 jika tidak ada flow timer
+      flowDurationMillis: flowDurationMillis ? Number(flowDurationMillis) : 0
     };
 
-    // Gunakan .set() agar struktur dokumen benar-benar baru dan bersih
+    // Simpan ke Firestore
     await newDocRef.set(newTask);
 
-    // Kirim respon ke frontend (konversi timestamp ke string agar JSON valid)
+    // Kirim respon ke frontend (konversi Timestamp ke String HANYA untuk JSON response)
     res.status(201).send({ 
         ...newTask, 
-        dueDate: dueDate, // Kembalikan string aslinya
+        dueDate: dueDate, // Kembalikan string aslinya ke frontend untuk tampilan
         createdAt: new Date().toISOString() 
     });
 
