@@ -580,7 +580,7 @@ app.get('/api/stats/tasks', authMiddleware, async (req, res) => {
       .get();
 
     // 4. Jalankan semua 3 kueri secara paralel
-    const [doneResult, deletedResult, missedResult] = await Promise.all([
+    const [doneResult, missedResult,deletedResult] = await Promise.all([
       doneQuery,
       missedQuery,
       deletedQuery
