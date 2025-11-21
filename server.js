@@ -1,4 +1,3 @@
-
 require('dotenv').config(); 
 
 const express = require('express');
@@ -70,16 +69,21 @@ app.get('/api/tasks', authMiddleware, async (req, res) => {
     let query = tasksCollection;
 
     // 2. Filter Status
-    // Logika: Tampilkan yang belum dihapus (deletedAt == null), kecuali user minta status 'deleted'
     if (status === 'deleted') {
-      query = query.where('deletedAt', '!=', null);
+      // ✅ PERBAIKAN BUG: Mengganti .where('deletedAt', '!=', null) 
+      //    dengan .where('status', '==', 'deleted') yang lebih efisien 
+      //    dan menghindari kebutuhan composite index.
+      query = query.where('status', '==', 'deleted');
     } else if (status) {
        // Filter spesifik: pending/completed/missed
-       // Pastikan juga deletedAt null agar task sampah tidak masuk
-      query = query.where('deletedAt', '==', null).where('status', '==', status);
+       // Status 'deleted' sudah tidak perlu, karena task yang dihapus statusnya memang 'deleted'
+       // Kita hanya perlu pastikan task yang diminta BUKAN 'deleted'
+       if (status !== 'deleted') {
+           query = query.where('status', '==', status);
+       }
     } else {
       // Default (misal untuk kalender): Ambil yang pending saja
-      query = query.where('deletedAt', '==', null).where('status', '==', 'pending');
+      query = query.where('status', '==', 'pending');
     }
     
     // 3. Eksekusi Query
@@ -358,9 +362,23 @@ app.put('/api/tasks/:taskId', authMiddleware, async (req, res) => {
     // Jika status diubah jadi 'completed', set 'completedAt'
     if (updateData.status === 'completed') {
       updateData.completedAt = admin.firestore.FieldValue.serverTimestamp();
-    } else if (updateData.status) {
-      // Jika status diubah kembali (misal ke 'pending'), hapus completedAt
+      updateData.deletedAt = null; // Pastikan bukan deleted
+      updateData.missedAt = null; // Pastikan bukan missed
+    } else if (updateData.status === 'missed') {
+      // Jika status diubah ke 'missed', set 'missedAt'
+      updateData.missedAt = admin.firestore.FieldValue.serverTimestamp();
       updateData.completedAt = null;
+      updateData.deletedAt = null;
+    } else if (updateData.status === 'deleted') {
+      // Jika status diubah ke 'deleted', set 'deletedAt'
+      updateData.deletedAt = admin.firestore.FieldValue.serverTimestamp();
+      updateData.completedAt = null;
+      updateData.missedAt = null;
+    } else if (updateData.status) {
+      // Jika status diubah kembali (misal ke 'pending'), hapus completedAt/missedAt/deletedAt
+      updateData.completedAt = null;
+      updateData.deletedAt = null;
+      updateData.missedAt = null;
     }
 
     // Tentukan path ke DOKUMEN task spesifik
@@ -477,8 +495,7 @@ app.get('/api/stats/productivity', authMiddleware, async (req, res) => {
     // 1. Tentukan rentang tanggal berdasarkan 'view'
     // Kueri dasar: HANYA ambil tugas yang 'completed'
     let query = tasksCollection
-      .where('deletedAt', '==', null)
-      .where('status', '==', 'completed');
+      .where('status', '==', 'completed'); // Cukup filter status 'completed'
 
     switch (view) {
       case 'daily': // Data untuk chart "Daily" (Minggu - Sabtu)
@@ -557,27 +574,29 @@ app.get('/api/stats/tasks', authMiddleware, async (req, res) => {
     const now = new Date(); // Waktu server saat ini
 
     // 1. Kueri untuk menghitung 'Done' (Selesai)
-    // status == 'completed' DAN belum di-soft-delete
+    // status == 'completed'
     const doneQuery = tasksCollection
       .where('status', '==', 'completed')
       .count()
       .get();
 
+    // 2. Kueri untuk menghitung 'Deleted' (Dihapus)
+    // ✅ PERBAIKAN BUG: Mengganti .where('deletedAt', '!=', null) 
+    //    dengan .where('status', '==', 'deleted')
+    const deletedQuery = tasksCollection
+      .where('status', '==', 'deleted')
+      .count()
+      .get();
+
     // 3. Kueri untuk menghitung 'Missed' (Terlewat)
     // status == 'pending' DAN dueDate < HARI INI
+    // ✅ PERBAIKAN BUG: Hapus .where('deletedAt', '==', null)
     const missedQuery = tasksCollection
-      .where('deletedAt', '==', null)
       .where('status', '==', 'pending')
       .where('dueDate', '<', now) // dueDate sudah lewat
       .count()
       .get();
 
-        // 2. Kueri untuk menghitung 'Deleted' (Dihapus)
-    // Cukup cek 'deletedAt' tidak null
-    const deletedQuery = tasksCollection
-      .where('deletedAt', '!=', null)
-      .count()
-      .get();
 
     // 4. Jalankan semua 3 kueri secara paralel
     const [doneResult, missedResult,deletedResult] = await Promise.all([
@@ -588,13 +607,16 @@ app.get('/api/stats/tasks', authMiddleware, async (req, res) => {
 
     // 5. Ambil angkanya dari hasil
     const doneCount = doneResult.data().count;
-    const missedCount = missedResult.data().count;
+    // NOTE: Missed count hanya menghitung 'pending' yang due date-nya sudah lewat.
+    // Jika frontend juga menghitung task dengan status 'missed', logic ini perlu disesuaikan.
+    // Untuk saat ini, kita biarkan logic server sebagai 'pending & lewat'
+    const missedCount = missedResult.data().count; 
     const deletedCount = deletedResult.data().count;
 
     // 6. Kirim sebagai JSON
     res.status(200).send({
       completed: doneCount,
-      missed: missedCount,
+      missed: missedCount, // Ini adalah tasks pending yang lewat jatuh tempo
       deleted: deletedCount
     });
 
