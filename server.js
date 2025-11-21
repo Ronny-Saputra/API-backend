@@ -740,53 +740,56 @@ app.post('/api/stats/streak/complete', authMiddleware, async (req, res) => {
 
       const { currentStreak, lastCompletionDate, streakDays } = currentState;
 
-      // 3. Logika Inti Streak (Meniru 'when' di Kotlin)
+      // 3. Logika Inti Streak (Perbaikan untuk memastikan +1 atau reset ke 1)
+      let newStreak; 
 
       // Kasus 2: Sudah di-update hari ini
       if (lastCompletionDate === todayStr) {
-        return currentState; // Tidak ada perubahan, langsung kembalikan data
+        return currentState; // Tidak ada perubahan
       }
-
-      let newStreak = currentStreak;
-      // Variabel 'hasCompletedToday' selalu 'true' di endpoint ini,
       
-      if (lastCompletionDate === null) {
-        // Kasus 1: Belum ada streak sama sekali
-        newStreak = 0;
+      // Catatan: Jika kode mencapai sini, berarti ini adalah penyelesaian tugas PERTAMA hari ini.
+
+      if (lastCompletionDate === null || !doc.exists) {
+        // Kasus 1: Belum ada streak sama sekali -> Mulai dari 1
+        newStreak = 1;
       } else if (isYesterday(lastCompletionDate, todayStr)) {
         // Kasus 3: Hari ini adalah hari setelah lastDateStr (Beruntun)
         newStreak = currentStreak + 1;
       } else {
         // Kasus 4: Jeda lebih dari satu hari (Streak putus)
-        newStreak = 0;
+        newStreak = 1;
       }
 
-      // 4. Logika 'streakDays' (Meniru kode Kotlin)
+      // 4. Logika 'streakDays' (Diperbaiki untuk konsistensi)
+      const oldStreak = currentStreak;
       const currentDay = getDayOfWeekAsNumber(now); // 0-6
       
       // Ubah string "1,2,5" menjadi Set [1, 2, 5]
       const existingDays = streakDays.split(',')
-                                    .map(s => s.trim()) // Hapus spasi
-                                    .filter(s => s.length > 0) // Hapus string kosong
-                                    .map(Number); // Ubah jadi angka
+                                    .map(s => s.trim())
+                                    .filter(s => s.length > 0)
+                                    .map(Number);
       const daySet = new Set(existingDays);
 
-      let newStreakDays;
-      if (newStreak > currentStreak) {
-        // Lanjutkan streak, tambahkan hari ini jika belum ada
+      let newStreakDays = streakDays; 
+      
+      if (newStreak > oldStreak) { 
+        // Streak bertambah (Case 3)
         if (!daySet.has(currentDay)) {
-          daySet.add(currentDay);
+            daySet.add(currentDay);
         }
         newStreakDays = Array.from(daySet).sort((a, b) => a - b).join(',');
-      } else if (newStreak === 1) {
-        // Streak baru (baik dari 0 atau dari reset)
-        // Mulai ulang 'streakDays' hanya dengan hari ini
+      } else if (newStreak === 1 && oldStreak !== 1) { // Menghindari reset jika sudah 1 hari (walau seharusnya tidak sampai sini)
+        // Streak baru dimulai (Case 1 atau Case 4)
         newStreakDays = String(currentDay);
-      } else {
-        // Kasus yang seharusnya tidak terjadi di sini (streak == 0)
-        // Tapi untuk jaga-jaga, kita pertahankan data lama
-        newStreakDays = streakDays;
+      } else if (newStreak === 1 && oldStreak === 1) {
+          // Streak 1 hari berlanjut ke hari yang sama (No change to streakDays string, should still be the current day)
+          if (!daySet.has(currentDay)) {
+             newStreakDays = String(currentDay);
+          }
       }
+      
 
       // 5. Siapkan data baru untuk disimpan
       const newState = {
