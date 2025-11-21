@@ -581,42 +581,44 @@ app.get('/api/stats/tasks', authMiddleware, async (req, res) => {
       .get();
 
     // 2. Kueri untuk menghitung 'Deleted' (Dihapus)
-    // ✅ PERBAIKAN BUG: Mengganti .where('deletedAt', '!=', null) 
-    //    dengan .where('status', '==', 'deleted')
+    // status == 'deleted'
     const deletedQuery = tasksCollection
       .where('status', '==', 'deleted')
       .count()
       .get();
 
-    // 3. Kueri untuk menghitung 'Missed' (Terlewat)
-    // status == 'pending' DAN dueDate < HARI INI
-    // ✅ PERBAIKAN BUG: Hapus .where('deletedAt', '==', null)
-    const missedQuery = tasksCollection
+    // 3a. Kueri untuk menghitung Missed tasks yang masih berstatus PENDING tapi sudah lewat DUE DATE
+    const missedPendingQuery = tasksCollection
       .where('status', '==', 'pending')
-      .where('dueDate', '<', now) // dueDate sudah lewat
+      .where('dueDate', '<', now) 
+      .count()
+      .get();
+      
+    // 3b. Kueri untuk menghitung Missed tasks yang sudah diubah statusnya menjadi MISSED
+    const missedExplicitQuery = tasksCollection
+      .where('status', '==', 'missed')
       .count()
       .get();
 
 
-    // 4. Jalankan semua 3 kueri secara paralel
-    const [doneResult, missedResult,deletedResult] = await Promise.all([
+    // 4. Jalankan semua 4 kueri secara paralel
+    const [doneResult, deletedResult, missedPendingResult, missedExplicitResult] = await Promise.all([
       doneQuery,
-      missedQuery,
-      deletedQuery
+      deletedQuery,
+      missedPendingQuery,
+      missedExplicitQuery
     ]);
 
-    // 5. Ambil angkanya dari hasil
+    // 5. Ambil angkanya dari hasil dan jumlahkan Missed
     const doneCount = doneResult.data().count;
-    // NOTE: Missed count hanya menghitung 'pending' yang due date-nya sudah lewat.
-    // Jika frontend juga menghitung task dengan status 'missed', logic ini perlu disesuaikan.
-    // Untuk saat ini, kita biarkan logic server sebagai 'pending & lewat'
-    const missedCount = missedResult.data().count; 
     const deletedCount = deletedResult.data().count;
+    // ✅ PERBAIKAN: Jumlahkan hasil dari PENDING & LEWAT WAKTU dengan EXPLICIT MISSED
+    const missedCount = missedPendingResult.data().count + missedExplicitResult.data().count; 
 
     // 6. Kirim sebagai JSON
     res.status(200).send({
       completed: doneCount,
-      missed: missedCount, // Ini adalah tasks pending yang lewat jatuh tempo
+      missed: missedCount, 
       deleted: deletedCount
     });
 
